@@ -6,7 +6,7 @@ ENTITY ex2 IS
 	GENERIC(
         NUMDISPLAYS: integer := 4;
         BITS_NUM: integer := 4; -- pi
-		  NUM_MEMORY: integer := 3;  -- numero limite para tamanho da pilha => 3+1
+		NUM_MEMORY: integer := 4;  -- numero limite para tamanho da pilha
         CMD_DEBOUNCE_T_MS: integer := 700;
         FCLK: integer := 50e6
 	);
@@ -31,13 +31,14 @@ ARCHITECTURE arch OF ex2 IS
 		);
     END COMPONENT;
 -------------------------------------------------------------------------------------
-type memory is array(0 to NUM_MEMORY) of integer; -- 0 ~ 1023
-signal rpnStack: memory;
+type memory is array(0 to NUM_MEMORY - 1) of integer;
+signal rpn_stack: memory;
 
 signal commandAcquired: std_logic;
 signal command: std_logic_vector(2 downto 0);
-signal command_old: std_logic_vector(2 downto 0);
+signal command_mem: std_logic_vector(2 downto 0);
 
+signal number_dbc: std_logic_vector(BITS_NUM - 1 downto 0);
 signal op_result: integer;
 
 constant CMD_DEBOUNCE_COUNT_MAX: integer := CMD_DEBOUNCE_T_MS * FCLK / 1e3;
@@ -47,72 +48,83 @@ BEGIN
 	debounce_operation_1 : debounce port map(button => operation(1), clk => clk, debounced_out => command(1));
 	debounce_operation_0 : debounce port map(button => operation(0), clk => clk, debounced_out => command(0));
 
+    number_dbc_gen: for i in 0 to BITS_NUM - 1 generate
+        number_dbc_X: debounce port map(button => number(i), clk => clk, debounced_out => number_dbc(i));
+    end generate;
+
     PROCESS (clk)   -- cuida do debounce de comando
     variable counter: integer := 0;
     variable flag: std_logic := 0;
 	BEGIN
-        IF counter < CMD_DEBOUNCE_COUNT_MAX THEN
-            counter := counter + 1;
-				IF flag = '0' THEN
-					command_old <= "000";
-				END IF;
+        IF command != "111" and command != "000" THEN
+            IF counter < CMD_DEBOUNCE_COUNT_MAX THEN
+                counter := counter + 1;
+                    --IF flag = '0' THEN
+                    --    command_old <= "000";
+                    --END IF;
+            ELSE
+                counter := 0;
+                commandAcquired <= '1';
+                command_mem <= command;
+                -- executa algum comando nesse ponto
+                --IF command_old = command
+                        --flag := '0';
+                    --ELSE
+                        --command_old <= command;
+                        --flag := '1';
+                    --END IF;
+            END IF;
         ELSE
             counter := 0;
-            -- executa algum comando nesse ponto
-            IF command_old = command
-					commandAcquired <= '1';
-					flag := '0';
-				ELSE
-					command_old <= command;
-					flag := '1';
-				END IF;
-            --
         END IF;
     END PROCESS;
 
     PROCESS (commandAcquired) --executa a operação registrada em commmand
+    variable stack_top: integer := 0;
     BEGIN
         IF commandAcquired'event and commandAcquired = '1' THEN
             IF command = "011" THEN -- enter
-                -- shifta todos valores em rpnStack e entao adiciona o number ao rpnStack(0)
-					 gen1: for i in NUM_MEMORY to 1 generate
-							rpnStack(i) <= rpnStack(i-1);
-					 end generate;
-					 rpnStack(0) <= number;
-					 --
+                IF stack_top < NUM_MEMORY - 1 THEN
+					 for i in stack_top to 1 loop -- shifta todos valores em rpn_stack e entao adiciona o number ao rpn_stack(0)
+							rpn_stack(i) <= rpn_stack(i-1);
+					 end loop;
+					 rpn_stack(0) <= to_integer(to_unsigned(number_dbc));
+                     stack_top := stack_top + 1;
+                END IF;
             ELSIF command = "001" THEN -- clear memory
-                -- escreve "0" em todos valores de rpnStack
+                    -- escreve "0" em todos valores de rpn_stack
 					 -- nao seria melhor escolher um valor diferente de 0? (um valor que indique "vazio")
-					 gen2: for i in 0 to NUM_MEMORY generate
-							rpnStack(i) <= 0;
+					 gen2: for i in 0 to NUM_MEMORY - 1 generate
+							rpn_stack(i) <= 0;
 					 end generate;
-					 --
-            ELSE
+					stack_top := 0; -- para que operações só possam ser realizadas após dois numeros adicionados.
+            ELSIF stack_top > 1 THEN
                 IF command = "110" THEN -- soma
-                    op_result <= rpnStack(1) + rpnStack(0);
+                    op_result <= rpn_stack(1) + rpn_stack(0);
                 ELSIF command = "101" THEN -- subtracao
-                    op_result <= rpnStack(1) - rpnStack(0); --verificar se valor eh negativo?
+                    op_result <= rpn_stack(1) - rpn_stack(0); --verificar se valor eh negativo?
                 ELSIF command = "100" THEN -- multiplicacao
-                    op_result <= rpnStack(1) * rpnStack(0);
+                    op_result <= rpn_stack(1) * rpn_stack(0);
                 ELSIF command = "010" THEN -- divisao
-                    op_result <= rpnStack(1) / rpnStack(0) when rpnStack(0) /= 0 else
-                                0; -- caso indeterminado, mostre um valor 0 (ou o maior possivel?) --Tanto faz ;)
+                    op_result <= rpn_stack(1) / rpn_stack(0) when rpn_stack(0) /= 0 else
+                                    0; -- caso indeterminado, mostre um valor 0 
                 END IF;
 
                 -- realiza shift da memoria, com generate
-					 -- acho que vai dar erro aqui, pois as outras opcoes nao foram verificadas...
-					 gen3: for i in 2 to NUM_MEMORY-1 generate
-							rpnStack(i-1) <= rpnStack(i);
-					 end generate;
-					 rpnStack(NUM_MEMORY) <= 0;
-					 rpnStack(0) <= op_result;
-                --
+                -- "acho que vai dar erro aqui[...]" -- Adil: Não tem mais opcoes para serem checadas, nem rola comAcq quando todos botoes ou nenhum botão esta apertado.
+                gen3: for i in 2 to NUM_MEMORY - 1 -1 generate -- Adil: aqui eu acredito que não seja com generate, eu me enganei. Tem que ser com for loop dentro do PROCESS.
+                    rpn_stack(i-1) <= rpn_stack(i);
+                end generate;
+                rpn_stack(NUM_MEMORY - 1) <= 0;
+                rpn_stack(0) <= op_result;
+                stack_top := stack_top - 1;
             END IF;
         END IF;
+        commandAcquired <= '0';
     END PROCESS;
 
 
-
+    -- falta enviar rpn_stack(0) para resultado e mostrar nos displays. ------
 
 
     generate_ssd: for i in 1 to NUMDISPLAYS generate

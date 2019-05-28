@@ -41,6 +41,8 @@ signal command_mem: std_logic_vector(2 downto 0);
 signal number_dbc: std_logic_vector(BITS_NUM - 1 downto 0);
 signal op_result: integer;
 
+signal resultado: std_logic_vector(NUMDISPLAYS*7 - 1 downto 0); -- Adicionado para converter o integer
+
 constant CMD_DEBOUNCE_COUNT_MAX: integer := CMD_DEBOUNCE_T_MS * FCLK / 1e3;
 --------------------------------------------------------------------------------------
 BEGIN
@@ -54,7 +56,7 @@ BEGIN
 
     PROCESS (clk)   -- cuida do debounce de comando
     variable counter: integer := 0;
-    variable flag: std_logic := 0;
+    --variable flag: std_logic := 0;
 	BEGIN
         IF command != "111" and command != "000" THEN
             IF counter < CMD_DEBOUNCE_COUNT_MAX THEN
@@ -112,7 +114,8 @@ BEGIN
 
                 -- realiza shift da memoria, com generate
                 -- "acho que vai dar erro aqui[...]" -- Adil: Não tem mais opcoes para serem checadas, nem rola comAcq quando todos botoes ou nenhum botão esta apertado.
-                gen3: for i in 2 to NUM_MEMORY - 1 -1 generate -- Adil: aqui eu acredito que não seja com generate, eu me enganei. Tem que ser com for loop dentro do PROCESS.
+                -- Adil: aqui eu acredito que não seja com generate, eu me enganei. Tem que ser com for loop dentro do PROCESS.
+		gen3: for i in 2 to NUM_MEMORY - 1 -1 generate -- Du: Não seria só "NUM_MEMORY - 1" no lugar do "NUM_MEMORY - 1 -1"
                     rpn_stack(i-1) <= rpn_stack(i);
                 end generate;
                 rpn_stack(NUM_MEMORY - 1) <= 0;
@@ -125,11 +128,11 @@ BEGIN
 
 
     -- falta enviar rpn_stack(0) para resultado e mostrar nos displays. ------
-
-
+    resultado <= std_logic_vector(to_signed(rpn_stack(0), resultado'length)); -- Add
+    
     generate_ssd: for i in 1 to NUMDISPLAYS generate
     hex(i-1) <= resultado(4*i-1 downto 4*(i-1));
-    ssd_saida(7*i-1 downto 7*(i-1)) <= 	"1000000" WHEN hex(i-1) = "0000" ELSE
+    ssd_saida(7*i-1 downto 7*(i-1)) <= 	  "1000000" WHEN hex(i-1) = "0000" ELSE
                                           "1111001" WHEN hex(i-1) = "0001" ELSE
                                           "0100100" WHEN hex(i-1) = "0010" ELSE
                                           "0110000" WHEN hex(i-1) = "0011" ELSE
@@ -150,4 +153,3 @@ BEGIN
 end generate generate_ssd;
 
 END ARCHITECTURE;
-"# logrep-lab6-Du-" 
